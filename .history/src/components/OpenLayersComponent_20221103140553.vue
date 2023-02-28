@@ -1,0 +1,317 @@
+<template>
+  <!-- html 안에 Map이 보여질 div 요소를 생성해주고 id 설정 -->
+    <div id="opmap" >
+      <!-- 지도 위에 팝업이 나타날 부분 -->
+      <div id="popup" class="ol-popup">
+        <a href="#" id="popup-closer" class="ol-popup-closer"></a>
+        <div id="popup-content">
+        </div>
+      </div>
+      <button @click="zoomOutBtn()" id="zoom-out">Zoom out</button>
+      <button @click="zoomInBtn()" id="zoom-in">Zoom in</button>
+    </div>
+</template>
+
+<script>
+// import Draw, {
+//   createBox,
+//   createReqularPolygon, 
+// } from 'ol/interaction/Draw';
+// import Polygon from 'ol/geom/Polygon';
+
+import Feature from 'ol/Feature';
+import {Map, View, Overlay} from 'ol';
+import Point from 'ol/geom/Point';
+// import TileJSON from 'ol/source/TileJSON';
+import TileLayer from 'ol/layer/Tile';
+// import OSM from 'ol/source/OSM';
+import XYZ from 'ol/source/XYZ';
+import {Icon, Style} from 'ol/style';
+import {Modify} from 'ol/interaction';
+import 'ol/ol.css';
+import VectorSource from 'ol/source/Vector';
+import VectorLayer from 'ol/layer/Vector';
+import {toLonLat} from 'ol/proj';
+import {toStringHDMS} from 'ol/coordinate';
+import { Fill, Stroke} from 'ol/style';
+import CircleStyle from 'ol/style/Circle';
+import {MultiPoint} from 'ol/geom';
+import {getVectorContext} from 'ol/render';
+
+export default {
+  name: 'MainMap',
+  data() {
+    return {
+      olMap: undefined,
+      overlay: null,
+      view : null,
+      tileLayer : null,
+    }
+  },
+  mounted() {
+    this.addMarker();
+  },
+  methods:{
+    zoomOutBtn(){
+        this.view = this.olMap.getView();
+        const zoom = this.view.getZoom();
+        this.view.setZoom(zoom - 1);
+    },
+    zoomInBtn(){
+        this.view = this.olMap.getView();
+        const zoom = this.view.getZoom();
+        this.view.setZoom(zoom + 1);
+    },
+    addMarker(){
+      const container = document.getElementById('popup');
+
+      const iconFeature = new Feature({
+        geometry: new Point([0,0]),
+        name: 'Null Island',
+        population: 4000,
+        rainfall:500,
+      });
+
+      const iconStyle = new Style({
+        image: new Icon({
+          anchor: [0.5, 46],
+          anchorXUnits: 'fraction',
+          anchorYUnits: 'pixels',
+          scale: 1.2,
+          src: 'http://map.vworld.kr/images/ol3/marker_blue.png', 
+        }),
+        zindex: 10
+      });
+
+      iconFeature.setStyle(iconStyle);
+
+      const vectorSource = new VectorSource({
+        features: [iconFeature],
+        wrapX: false,   // Draw Shape을 위해서 추가 
+      });
+
+      const vectorLayer = new VectorLayer({
+        source: vectorSource,
+      });
+
+      /**
+       *  popup 위한 . . .
+       */
+        const key = 'Xwmh9S7EsPlt8nogkgue';
+        const attributions =
+          '<a href="https://www.maptiler.com/copyright/" target="_blank">&copy; MapTiler</a> ' +
+          '<a href="https://www.openstreetmap.org/copyright" target="_blank">&copy; OpenStreetMap contributors</a>';
+
+
+      const rasterLayer = new TileLayer({
+        source: new XYZ({
+          attributions,
+          url: 'https://api.maptiler.com/maps/streets/{z}/{x}/{y}.png?key=' + key,
+          tileSize: 512,
+        }),
+      });
+
+
+            /**
+       *  지도에 팝업을 띄우기 위한오버레이 생성
+       */
+        this.overlay = new Overlay({
+        element: container,
+        autoPan: {
+          Animation: {
+            duration: 250,
+          }
+        }
+      });
+
+      const target = document.getElementById('opmap');
+      this.olMap = new Map({
+        layers: [rasterLayer, vectorLayer],
+        overlays: [this.overlay],
+        target: target,
+        view: new View({
+          center: [0, 0],
+          zoom: 2,
+        }),
+      });
+
+      this.addPopUp();
+
+      const modify = new Modify({
+        hitDetection: vectorLayer,
+        source: vectorSource,
+
+
+      });
+
+      modify.on(['modifystart', 'modifyend'], function (evt) {
+        target.style.cursor = evt.type === 'modifystart' ? 'grabbing' : 'pointer';
+      });
+      
+      const overlaySource = modify.getOverlay().getSource();
+      overlaySource.on(['addfeature', 'removefeature'], function (evt) {
+        target.style.cursor = evt.type === 'addfeature' ? 'pointer' : '';
+      });
+
+      this.olMap.addInteraction(modify);
+    },
+    addPopUp(){
+      
+      /**
+       *  팝업 만들기 위한 엘리먼트
+       */
+      const content = document.getElementById('popup-content');
+      const closer = document.getElementById('popup-closer');
+
+      /**
+       * 
+       */
+      closer.onclick = function () {
+        this.overlay.setPosition(undefined);
+        closer.blur();
+        return false;
+      };
+      
+      this.olMap.on('click', (evt) => {
+        const coordinate = evt.coordinate;
+        const hdms = toStringHDMS(toLonLat(coordinate));
+
+        content.innerHTML = '<p>You Clicked here:</p><code>' + hdms + '</code>';
+        this.overlay.setPosition(coordinate);
+      });
+
+    },
+    dynamicData(){
+      const imageStyle = new Style({
+        image: new CircleStyle({
+          radius: 5,
+          fill: new Fill({color: 'yellow'}),
+          stroke: new Stroke({color: 'red', width: 1}),
+        }),
+      });
+
+      const headInnerImageStyle = new Style({
+        image: new CircleStyle({
+          radius: 2,
+          fill: new Fill({color: 'blue'}),
+        }),
+      });
+
+      const headOuterImageStyle = new Style({
+        image: new CircleStyle({
+          radius: 5,
+          fill: new Fill({color: 'black'}),
+        }),
+      });
+      
+      const n = 200;
+      const omegaTheta = 30000; // Rotation period in ms
+      const R = 7e6;
+      const r = 2e6;
+      const p = 2e6;
+      tileLayer.on('postrender', function (event) {
+        const vectorContext = getVectorContext(event);
+        const frameState = event.frameState;
+        const theta = (2 * Math.PI * frameState.time) / omegaTheta;
+        const coordinates = [];
+        let i;
+        for (i = 0; i < n; ++i) {
+          const t = theta + (2 * Math.PI * i) / n;
+          const x = (R + r) * Math.cos(t) + p * Math.cos(((R + r) * t) / r);
+          const y = (R + r) * Math.sin(t) + p * Math.sin(((R + r) * t) / r);
+          coordinates.push([x, y]);
+        }
+        vectorContext.setStyle(imageStyle);
+        vectorContext.drawGeometry(new MultiPoint(coordinates));
+
+        const headPoint = new Point(coordinates[coordinates.length - 1]);
+
+        vectorContext.setStyle(headOuterImageStyle);
+        vectorContext.drawGeometry(headPoint);
+
+        vectorContext.setStyle(headInnerImageStyle);
+        vectorContext.drawGeometry(headPoint);
+
+        this.olMap.render();
+      });
+      this.olMap.render();
+    }
+  }
+}
+
+</script>
+
+<style scope>
+.map {
+        width: 100%;
+        height: 400px;
+      }
+      
+a.skiplink {
+  position: absolute;
+  clip: rect(1px, 1px, 1px, 1px);
+  padding: 0;
+  border: 0;
+  height: 1px;
+  width: 1px;
+  overflow: hidden;
+}
+a.skiplink:focus {
+  clip: auto;
+  height: auto;
+  width: auto;
+  background-color: #fff;
+  padding: 0.3em;
+}
+#map:focus {
+  outline: #4A74A8 solid 0.15em;
+}
+.ol-popup {
+  position: absolute;
+  background-color: white;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+  padding: 15px;
+  border-radius: 10px;
+  border: 1px solid #cccccc;
+  bottom: 12px;
+  left: -50px;
+  min-width: 280px;
+}
+.ol-popup:after, .ol-popup:before {
+  top: 100%;
+  border: solid transparent;
+  content: " ";
+  height: 0;
+  width: 0;
+  position: absolute;
+  pointer-events: none;
+}
+.ol-popup:after {
+  border-top-color: white;
+  border-width: 10px;
+  left: 48px;
+  margin-left: -10px;
+}
+.ol-popup:before {
+  border-top-color: #cccccc;
+  border-width: 11px;
+  left: 48px;
+  margin-left: -11px;
+}
+.ol-popup-closer {
+  text-decoration: none;
+  position: absolute;
+    top: 2px;
+    right: 8px;
+}
+.ol-popup-closer:after {
+  content: "✖";
+}
+#opmap {
+  position: relative;
+  right: 1200px;
+  top: 500px;
+  width: 400px;
+  height: 400px;
+}
+</style>

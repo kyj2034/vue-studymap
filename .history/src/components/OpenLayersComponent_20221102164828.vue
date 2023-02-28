@@ -1,0 +1,295 @@
+<template>
+  <!-- html 안에 Map이 보여질 div 요소를 생성해주고 id 설정 -->
+  <div id="opmap" >
+    <!-- 지도 위에 팝업이 나타날 부분 -->
+    <div id="popup" class="ol-popup">
+      <a href="#" id="popup-closer" class="ol-popup-closer"></a>
+      <div id="popup-content">
+      </div>
+    </div>
+  </div>
+  <div class="row">
+    <div class="col-auto">
+      <span class="input-group">
+        <label class="input-group-text" for="type">Shape type :</label>
+        <select class="form-select" v-for="type in typeList" id="type">
+          <option value="type">{{type}</option>
+        </select>
+        <input class="form-control" type="button" value="Undo" id="undo" />
+      </span> 
+    </div>
+  </div>
+</template>
+
+<script>
+import Draw, {
+  createBox,
+  createReqularPolygon, 
+} from 'ol/interaction/Draw';
+import Polygon from 'ol/geom/Polygon';
+
+import Feature from 'ol/Feature';
+import {Map, View, Overlay} from 'ol';
+import Point from 'ol/geom/Point';
+// import TileJSON from 'ol/source/TileJSON';
+import TileLayer from 'ol/layer/Tile';
+// import OSM from 'ol/source/OSM';
+import XYZ from 'ol/source/XYZ';
+import {Icon, Style} from 'ol/style';
+import {Modify} from 'ol/interaction';
+import 'ol/ol.css';
+import VectorSource from 'ol/source/Vector';
+import VectorLayer from 'ol/layer/Vector';
+import {toLonLat} from 'ol/proj';
+import {toStringHDMS} from 'ol/coordinate';
+
+export default {
+  name: 'MainMap',
+  data() {
+    return {
+      olMap: undefined,
+      overlay: null,
+    }
+  },
+  mounted() {
+    this.addMarker();
+  },
+  methods:{
+    addMarker(){
+      const container = document.getElementById('popup');
+
+      const iconFeature = new Feature({
+        geometry: new Point([0,0]),
+        name: 'Null Island',
+        population: 4000,
+        rainfall:500,
+      });
+
+      const iconStyle = new Style({
+        image: new Icon({
+          anchor: [0.5, 46],
+          anchorXUnits: 'fraction',
+          anchorYUnits: 'pixels',
+          scale: 1.2,
+          src: 'http://map.vworld.kr/images/ol3/marker_blue.png', 
+        }),
+        zindex: 10
+      });
+
+      iconFeature.setStyle(iconStyle);
+
+      const vectorSource = new VectorSource({
+        features: [iconFeature],
+        wrapX: false,   // Draw Shape을 위해서 추가 
+      });
+
+      const vectorLayer = new VectorLayer({
+        source: vectorSource,
+      });
+
+      /**
+       *  popup 위한 . . .
+       */
+        const key = 'Xwmh9S7EsPlt8nogkgue';
+        const attributions =
+          '<a href="https://www.maptiler.com/copyright/" target="_blank">&copy; MapTiler</a> ' +
+          '<a href="https://www.openstreetmap.org/copyright" target="_blank">&copy; OpenStreetMap contributors</a>';
+
+      const rasterLayer = new TileLayer({
+        source: new XYZ({
+          attributions,
+          url: 'https://api.maptiler.com/maps/streets/{z}/{x}/{y}.png?key=' + key,
+          tileSize: 512,
+        }),
+      });
+
+            /**
+       *  지도에 팝업을 띄우기 위한오버레이 생성
+       */
+        this.overlay = new Overlay({
+        element: container,
+        autoPan: {
+          Animation: {
+            duration: 250,
+          }
+        }
+      });
+
+      const target = document.getElementById('opmap');
+      this.olMap = new Map({
+        layers: [rasterLayer, vectorLayer],
+        overlays: [this.overlay],
+        target: target,
+        view: new View({
+          center: [0, 0],
+          zoom: 2,
+        }),
+      });
+
+      this.addPopUp();
+
+      this.drawPoly();
+      const modify = new Modify({
+        hitDetection: vectorLayer,
+        source: vectorSource,
+      });
+
+      modify.on(['modifystart', 'modifyend'], function (evt) {
+        target.style.cursor = evt.type === 'modifystart' ? 'grabbing' : 'pointer';
+      });
+      
+      const overlaySource = modify.getOverlay().getSource();
+      overlaySource.on(['addfeature', 'removefeature'], function (evt) {
+        target.style.cursor = evt.type === 'addfeature' ? 'pointer' : '';
+      });
+
+      this.olMap.addInteraction(modify);
+    },
+    addPopUp(){
+      
+      /**
+       *  팝업 만들기 위한 엘리먼트
+       */
+      
+      const content = document.getElementById('popup-content');
+      const closer = document.getElementById('popup-closer');
+
+
+      /**
+       * 
+       */
+      closer.onclick = function () {
+        this.overlay.setPosition(undefined);
+        closer.blur();
+        return false;
+      };
+      
+      this.olMap.on('click', (evt) => {
+        const coordinate = evt.coordinate;
+        const hdms = toStringHDMS(toLonLat(coordinate));
+
+        content.innerHTML = '<p>You Clicked here:</p><code>' + hdms + '</code>';
+        this.overlay.setPosition(coordinate);
+      });
+
+    },
+    drawPoly(source){
+      const typeSelect = document.getElementById('type');
+      let draw;
+      
+      function addInteraction() {
+        let value = typeSelect.value;
+        if(value !== 'None'){
+          let geometryFunction;
+          if(value === 'Square') {
+            value = 'Circle';
+            geometryFunction = createReqularPolygon(4);
+          } else if (value === 'Box') {
+            value = 'Circle';
+            geometryFunction = createBox();
+          } else if (value === 'Star') {
+            value = 'Circle';
+            geometryFunction = function( coordinates, geometry ) {
+              const center = coordinates[0];
+              const last = coordinates[coordinates.length - 1];
+              const dx = center[0] - last[0];
+              const dy = center[1] - last[1];
+              const radius = Math.sqrt(dx * dx + dy * dy);
+              const rotation = Math.atan2(dy, dx);
+              const newCoordinates = [];
+              const numPoints = 12;
+              for (let i = 0; i < numPoints; ++i) {
+                const angle = rotation + ( i * 2 * Math.PI) / numPoints;
+                const fraction = i % 2 === 0 ? 1 : 0.5;
+                const offsetX = radius * fraction * Math.cos(angle);
+                const offsetY = radius * fraction * Math.sin(angle);
+                newCoordinates.push([center[0] + offsetX, center[1] + offsetY]);
+              }
+              newCoordinates.push(newCoordinates[0].slice());
+              if(!geometry) {
+                geometry = new Polygon([newCoordinates]);
+              } else {
+                geometry.setCoordinates([newCoordinates]);
+              }
+              return geometry;
+            };
+          }
+          draw =  new Draw({
+            source: source,
+            type: value,
+            geometryFunction: geometryFunction,
+          });
+          this.olMap.addInteraction(draw);
+        }
+      }
+
+      typeSelect.onchange = function () {
+        this.olMap.removeInteraction(draw);
+        addInteraction();
+      };
+
+      document.getElementById('undo').addEventListener('click', function () {
+        draw.removeInteraction();
+      });
+
+      addInteraction();
+    }
+  }
+}
+
+</script>
+
+<style scope>
+.map {
+        width: 100%;
+        height: 400px;
+      }
+      .ol-popup {
+        position: absolute;
+        background-color: white;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+        padding: 15px;
+        border-radius: 10px;
+        border: 1px solid #cccccc;
+        bottom: 12px;
+        left: -50px;
+        min-width: 280px;
+      }
+      .ol-popup:after, .ol-popup:before {
+        top: 100%;
+        border: solid transparent;
+        content: " ";
+        height: 0;
+        width: 0;
+        position: absolute;
+        pointer-events: none;
+      }
+      .ol-popup:after {
+        border-top-color: white;
+        border-width: 10px;
+        left: 48px;
+        margin-left: -10px;
+      }
+      .ol-popup:before {
+        border-top-color: #cccccc;
+        border-width: 11px;
+        left: 48px;
+        margin-left: -11px;
+      }
+      .ol-popup-closer {
+        text-decoration: none;
+        position: absolute;
+        top: 2px;
+        right: 8px;
+      }
+      .ol-popup-closer:after {
+        content: "✖";
+      }
+#opmap {
+  position: relative;
+  right: 1200px;
+  top: 500px;
+  width: 400px;
+  height: 400px;
+}
+</style>
